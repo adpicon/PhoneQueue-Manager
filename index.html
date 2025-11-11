@@ -3,9 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Phone Queue – Simulator</title>
+  <title>Phone Queue – Simple</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#eef2f6;margin:0}
+    body{
+      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      background:#eef2f6 url('ffc1efb7-3c31-4ff6-b8cf-a52e85bb3421.jpg') repeat;
+      background-size:220px;
+      margin:0;
+    }
+    .overlay{background:rgba(255,255,255,0.9);min-height:100vh;}
     .container{max-width:1000px;margin:0 auto;padding:16px}
     h1{margin:0 0 8px 0;text-align:center}
     .toolbar{display:flex;gap:8px;justify-content:center;margin-bottom:12px}
@@ -17,7 +23,9 @@
     .panel-b{padding:10px 14px}
     .row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;border:2px solid #000;border-radius:8px;padding:8px 10px;margin-bottom:8px;background:#fff}
     .name{font-weight:600}
-    .status{font-size:12px;color:#0f172a;text-align:right}
+    .status{font-size:12px;text-align:right}
+    .status.online{color:#16a34a;}
+    .status.oncall{color:#dc2626;}
     .row .btn{padding:4px 8px;border-radius:10px}
     .empty{font-size:12px;color:#64748b}
     label{display:block;font-size:12px;font-weight:600;margin-bottom:4px}
@@ -26,31 +34,33 @@
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Phone Queue Simulator</h1>
-    <div class="toolbar">
-      <button class="btn" id="start-next">Start next</button>
-      <button class="btn" id="reset">Reset</button>
-    </div>
-
-    <div class="grid">
-      <div class="panel">
-        <div class="panel-h"><div style="font-weight:700">Available</div><div id="count-available">0</div></div>
-        <div class="panel-b" id="list-available"></div>
-        <div class="panel-b">
-          <div class="form">
-            <div>
-              <label>Engineer name</label>
-              <input id="new-name" placeholder="Jane Doe" />
-            </div>
-            <button class="btn" id="add">Add</button>
-          </div>
-        </div>
+  <div class="overlay">
+    <div class="container">
+      <h1>Phone Queue Simulator</h1>
+      <div class="toolbar">
+        <button class="btn" id="start-next">Call next</button>
+        <button class="btn" id="reset">Reset</button>
       </div>
 
-      <div class="panel">
-        <div class="panel-h"><div style="font-weight:700">On Call</div><div id="count-oncall">0</div></div>
-        <div class="panel-b" id="list-oncall"></div>
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-h"><div style="font-weight:700">Available</div><div id="count-available">0</div></div>
+          <div class="panel-b" id="list-available"></div>
+          <div class="panel-b">
+            <div class="form">
+              <div>
+                <label>Engineer name</label>
+                <input id="new-name" placeholder="Jane Doe" />
+              </div>
+              <button class="btn" id="add">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-h"><div style="font-weight:700">On Call</div><div id="count-oncall">0</div></div>
+          <div class="panel-b" id="list-oncall"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -81,7 +91,6 @@
       document.getElementById('count-available').textContent = avail.length;
       document.getElementById('count-oncall').textContent = oncall.length;
 
-      // available list
       const la = document.getElementById('list-available');
       la.innerHTML = '';
       if(avail.length===0){ la.innerHTML = '<div class="empty">No engineers available.</div>'; }
@@ -92,17 +101,16 @@
         div.innerHTML = `
           <div class="name">${a.name}</div>
           <div></div>
-          <div class="status">Online - <span data-timer="${a.id}">${fmt(since)}</span></div>
+          <div class="status online">Online - <span data-timer="${a.id}">${fmt(since)}</span></div>
         `;
         const btn = document.createElement('button');
         btn.className = 'btn';
-        btn.textContent = 'Start';
+        btn.textContent = 'Call';
         btn.onclick = ()=>startCall(a.id);
         div.children[1].appendChild(btn);
         la.appendChild(div);
       });
 
-      // on call list
       const lc = document.getElementById('list-oncall');
       lc.innerHTML = '';
       if(oncall.length===0){ lc.innerHTML = '<div class="empty">No active calls.</div>'; }
@@ -113,7 +121,7 @@
         div.innerHTML = `
           <div class="name">${a.name}</div>
           <div></div>
-          <div class="status">On Call - <span data-timer="${a.id}">${fmt(since)}</span></div>
+          <div class="status oncall">On Call - <span data-timer="${a.id}">${fmt(since)}</span></div>
         `;
         const btn = document.createElement('button');
         btn.className = 'btn';
@@ -123,7 +131,6 @@
         lc.appendChild(div);
       });
 
-      // enable/disable Start next
       document.getElementById('start-next').disabled = avail.length===0;
     }
 
@@ -154,7 +161,6 @@
       const idx = state.agents.findIndex(a=>a.id===id && a.status==='oncall');
       if(idx===-1) return;
       const agent = state.agents[idx];
-      // move to end of available list with reset timer
       state.agents.splice(idx,1);
       state.agents.push({ id: agent.id, name: agent.name, status:'available', since: Date.now() });
       save(); render();
@@ -167,7 +173,6 @@
 
     function resetAll(){ if(confirm('Clear all data?')){ state.agents=[]; save(); render(); } }
 
-    // init
     load(); render();
     setInterval(tick, 1000);
 
