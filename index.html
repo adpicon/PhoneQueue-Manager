@@ -3,274 +3,177 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Phone Queue Simulator</title>
-  <script>
-    // Simple persistent state using localStorage
-    const STATE_KEY = 'phone-queue-state-v1-html';
-    const uid = () => Math.random().toString(36).slice(2, 9);
-
-    const state = {
-      waiting: [], // {id, name, ref}
-      busy: [],    // {id, agent, caller, startedAt}
-      done: [],    // {id, caller, agent, startedAt, endedAt}
-      agents: []   // {id, name}
-    };
-
-    function save() { localStorage.setItem(STATE_KEY, JSON.stringify(state)); }
-    function load() {
-      const raw = localStorage.getItem(STATE_KEY);
-      if (!raw) return;
-      try {
-        const s = JSON.parse(raw);
-        Object.assign(state, { waiting: s.waiting||[], busy: s.busy||[], done: s.done||[], agents: s.agents||[] });
-      } catch {}
-    }
-
-    // DOM helpers
-    function el(q) { return document.querySelector(q); }
-    function fmtTime(t){ return new Date(t).toLocaleString(); }
-
-    // Render functions
-    function render() {
-      // Stats
-      el('#stat-waiting').textContent = state.waiting.length;
-      el('#stat-busy').textContent = state.busy.length;
-      el('#stat-agents').textContent = state.agents.length;
-      el('#btn-call-next').disabled = !(state.waiting.length && state.agents.length);
-
-      // Waiting
-      const w = el('#waiting');
-      w.innerHTML = '';
-      state.waiting.forEach((c, i) => {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `
-          <div class="row-main">
-            <div class="title">${c.name}</div>
-            <div class="sub">${c.ref||''}</div>
-          </div>
-          <div class="row-actions">
-            <button data-act="up">↑</button>
-            <button data-act="down">↓</button>
-            <button data-act="remove">✕</button>
-          </div>`;
-        row.querySelector('[data-act="up"]').onclick = () => { if(i>0){ [state.waiting[i-1], state.waiting[i]] = [state.waiting[i], state.waiting[i-1]]; save(); render(); } };
-        row.querySelector('[data-act="down"]').onclick = () => { if(i < state.waiting.length-1){ [state.waiting[i+1], state.waiting[i]] = [state.waiting[i], state.waiting[i+1]]; save(); render(); } };
-        row.querySelector('[data-act="remove"]').onclick = () => { state.waiting.splice(i,1); save(); render(); };
-        w.appendChild(row);
-      });
-      if(state.waiting.length===0) w.innerHTML = '<div class="empty">No callers in queue.</div>';
-
-      // Busy
-      const b = el('#busy');
-      b.innerHTML = '';
-      state.busy.forEach(call => {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `
-          <div class="row-main">
-            <div class="title">${call.caller.name} → ${call.agent.name}</div>
-            <div class="sub">Started ${new Date(call.startedAt).toLocaleTimeString()}</div>
-          </div>
-          <div class="row-actions">
-            <button data-act="end">End</button>
-          </div>`;
-        row.querySelector('[data-act="end"]').onclick = () => {
-          const endedAt = Date.now();
-          state.done.unshift({ id: uid(), caller: call.caller, agent: call.agent, startedAt: call.startedAt, endedAt });
-          // return agent to available
-          state.agents.push(call.agent);
-          // remove from busy
-          state.busy = state.busy.filter(x => x.id !== call.id);
-          save(); render();
-        };
-        b.appendChild(row);
-      });
-      if(state.busy.length===0) b.innerHTML = '<div class="empty">No active calls.</div>';
-
-      // Agents
-      const a = el('#agents');
-      a.innerHTML = '';
-      state.agents.forEach(agent => {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `
-          <div class="row-main">
-            <div class="title">${agent.name}</div>
-          </div>
-          <div class="row-actions">
-            <button data-act="remove">Remove</button>
-          </div>`;
-        row.querySelector('[data-act="remove"]').onclick = () => { state.agents = state.agents.filter(x => x.id !== agent.id); save(); render(); };
-        a.appendChild(row);
-      });
-      if(state.agents.length===0) a.innerHTML = '<div class="empty">No agents available.</div>';
-
-      // Done table
-      const tbody = el('#done-body');
-      tbody.innerHTML = '';
-      state.done.forEach(x => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${fmtTime(x.startedAt)}</td>
-          <td>${fmtTime(x.endedAt)}</td>
-          <td>${x.caller.name}</td>
-          <td>${x.caller.ref||''}</td>
-          <td>${x.agent.name}</td>`;
-        tbody.appendChild(tr);
-      });
-    }
-
-    function callNext(){
-      if(!(state.waiting.length && state.agents.length)) return;
-      const caller = state.waiting.shift();
-      const agent = state.agents.shift();
-      state.busy.push({ id: uid(), agent, caller, startedAt: Date.now() });
-      save(); render();
-    }
-
-    function exportCSV(){
-      const rows = [["Started","Ended","Caller","Reference","Agent"], ...state.done.map(x=>[
-        new Date(x.startedAt).toISOString(), new Date(x.endedAt).toISOString(), x.caller.name, x.caller.ref||'', x.agent.name
-      ])];
-      const csv = rows.map(r => r.map(c => '"'+String(c).replaceAll('"','""')+'"').join(',')).join('\n');
-      const blob = new Blob([csv], {type:'text/csv'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'queue_log_'+new Date().toISOString()+'.csv'; a.click(); URL.revokeObjectURL(url);
-    }
-
-    function resetAll(){ if(confirm('Clear all data?')) { state.waiting=[]; state.busy=[]; state.done=[]; state.agents=[]; save(); render(); } }
-
-    window.addEventListener('DOMContentLoaded', () => {
-      load();
-      // Hook UI
-      el('#btn-call-next').onclick = callNext;
-      el('#btn-export').onclick = exportCSV;
-      el('#btn-reset').onclick = resetAll;
-      el('#add-caller').onclick = () => {
-        const name = el('#caller-name').value.trim();
-        const ref = el('#caller-ref').value.trim();
-        if(!name) return;
-        state.waiting.push({ id: uid(), name, ref });
-        el('#caller-name').value=''; el('#caller-ref').value='';
-        save(); render();
-      };
-      el('#add-agent').onclick = () => {
-        const name = el('#agent-name').value.trim();
-        if(!name) return; state.agents.push({ id: uid(), name }); el('#agent-name').value=''; save(); render();
-      };
-      render();
-    });
-  </script>
+  <title>Phone Queue – Simulator</title>
   <style>
-    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial; background:#f1f5f9; margin:0; }
-    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
-    header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; }
-    h1 { font-size: 22px; margin: 0 0 4px 0; }
-    .muted { color:#475569; font-size: 12px; }
-    .actions > button { margin-left:8px; }
-    .btn { border:1px solid #cbd5e1; background:white; border-radius: 14px; padding:8px 12px; cursor:pointer; }
-    .grid { display:grid; grid-template-columns: repeat(3, 1fr); grid-gap:16px; }
-    @media (max-width:900px){ .grid { grid-template-columns: 1fr; } }
-    .card { background:white; border-radius: 16px; box-shadow: 0 1px 3px rgba(15,23,42,.08); overflow:hidden; }
-    .card h2 { font-size: 16px; margin:0; }
-    .card-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #e2e8f0; padding: 12px 14px; }
-    .card-body { padding: 12px 14px; }
-    .row { display:flex; align-items:center; justify-content:space-between; border:1px solid #e2e8f0; border-radius: 12px; padding:8px 10px; margin-bottom:8px; }
-    .row-main .title { font-weight:600; font-size: 14px; }
-    .row-main .sub { font-size:12px; color:#475569; }
-    .row-actions button { border:1px solid #cbd5e1; background:white; border-radius:10px; padding:4px 8px; cursor:pointer; margin-left:4px; }
-    .empty { font-size:12px; color:#64748b; }
-    label { font-size: 12px; font-weight:600; display:block; margin-bottom: 6px; }
-    input { width:100%; box-sizing:border-box; border:1px solid #cbd5e1; border-radius: 12px; padding:8px 10px; }
-    .form-grid { display:grid; grid-template-columns: 1fr 1fr; grid-gap:8px; margin-top:10px; }
-    .table { width:100%; border-collapse: collapse; font-size: 12px; }
-    .table th, .table td { text-align:left; padding:8px; border-top: 1px solid #e2e8f0; }
-    footer { text-align:center; font-size:11px; color:#64748b; margin-top:24px; }
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#eef2f6;margin:0}
+    .container{max-width:1000px;margin:0 auto;padding:16px}
+    h1{margin:0 0 8px 0;text-align:center}
+    .toolbar{display:flex;gap:8px;justify-content:center;margin-bottom:12px}
+    .btn{border:1px solid #cbd5e1;background:#fff;border-radius:14px;padding:8px 12px;cursor:pointer}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:900px){.grid{grid-template-columns:1fr 1fr}}
+    .panel{background:#fff;border-radius:16px;box-shadow:0 1px 3px rgba(2,6,23,.1)}
+    .panel-h{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding:10px 14px}
+    .panel-b{padding:10px 14px}
+    .row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;border:2px solid #000;border-radius:8px;padding:8px 10px;margin-bottom:8px;background:#fff}
+    .name{font-weight:600}
+    .status{font-size:12px;color:#0f172a;text-align:right}
+    .row .btn{padding:4px 8px;border-radius:10px}
+    .empty{font-size:12px;color:#64748b}
+    label{display:block;font-size:12px;font-weight:600;margin-bottom:4px}
+    input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:12px;padding:8px 10px}
+    .form{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:8px}
   </style>
 </head>
 <body>
   <div class="container">
-    <header>
-      <div>
-        <h1>Phone Queue Simulator</h1>
-        <div class="muted">Simple manual queue for call order. Data stays in this browser.</div>
-      </div>
-      <div class="actions">
-        <button id="btn-export" class="btn">Export CSV</button>
-        <button id="btn-reset" class="btn">Reset</button>
-      </div>
-    </header>
+    <h1>Phone Queue Simulator</h1>
+    <div class="toolbar">
+      <button class="btn" id="start-next">Start next</button>
+      <button class="btn" id="reset">Reset</button>
+    </div>
 
     <div class="grid">
-      <div class="card">
-        <div class="card-header">
-          <h2>Waiting (<span id="stat-waiting">0</span>)</h2>
-          <button id="btn-call-next" class="btn">Call next</button>
-        </div>
-        <div class="card-body">
-          <div id="waiting"></div>
-          <div class="form-grid">
+      <div class="panel">
+        <div class="panel-h"><div style="font-weight:700">Available</div><div id="count-available">0</div></div>
+        <div class="panel-b" id="list-available"></div>
+        <div class="panel-b">
+          <div class="form">
             <div>
-              <label>Caller name</label>
-              <input id="caller-name" placeholder="Jane Doe" />
+              <label>Engineer name</label>
+              <input id="new-name" placeholder="Jane Doe" />
             </div>
-            <div>
-              <label>Reference</label>
-              <input id="caller-ref" placeholder="Case 123" />
-            </div>
-          </div>
-          <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-            <button id="add-caller" class="btn">Add caller</button>
+            <button class="btn" id="add">Add</button>
           </div>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <h2>With engineer (<span id="stat-busy">0</span>)</h2>
-        </div>
-        <div class="card-body" id="busy"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <h2>Available agents (<span id="stat-agents">0</span>)</h2>
-        </div>
-        <div class="card-body">
-          <div id="agents"></div>
-          <div class="form-grid">
-            <div>
-              <label>Agent name</label>
-              <input id="agent-name" placeholder="Alex" />
-            </div>
-          </div>
-          <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-            <button id="add-agent" class="btn">Add agent</button>
-          </div>
-        </div>
+      <div class="panel">
+        <div class="panel-h"><div style="font-weight:700">On Call</div><div id="count-oncall">0</div></div>
+        <div class="panel-b" id="list-oncall"></div>
       </div>
     </div>
-
-    <div class="card" style="margin-top:16px;">
-      <div class="card-header"><h2>Completed</h2></div>
-      <div class="card-body" style="overflow-x:auto;">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Started</th>
-              <th>Ended</th>
-              <th>Caller</th>
-              <th>Reference</th>
-              <th>Agent</th>
-            </tr>
-          </thead>
-          <tbody id="done-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <footer>Open this file in any browser. No backend or build tools required.</footer>
   </div>
+
+  <script>
+    const KEY = 'phone-queue-simple-v1';
+    const uid = () => Math.random().toString(36).slice(2,9);
+
+    const state = { agents: [] }; // {id,name,status:'available'|'oncall', since:number}
+
+    function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+    function load(){
+      const raw = localStorage.getItem(KEY);
+      if(!raw) return; try{ const s = JSON.parse(raw); if(Array.isArray(s.agents)) state.agents = s.agents; }catch{}
+    }
+
+    function fmt(ms){
+      const sec = Math.max(0, Math.floor(ms/1000));
+      const h = String(Math.floor(sec/3600)).padStart(2,'0');
+      const m = String(Math.floor((sec%3600)/60)).padStart(2,'0');
+      const s = String(sec%60).padStart(2,'0');
+      return `${h}:${m}:${s}`;
+    }
+
+    function render(){
+      const avail = state.agents.filter(a=>a.status==='available');
+      const oncall = state.agents.filter(a=>a.status==='oncall');
+      document.getElementById('count-available').textContent = avail.length;
+      document.getElementById('count-oncall').textContent = oncall.length;
+
+      // available list
+      const la = document.getElementById('list-available');
+      la.innerHTML = '';
+      if(avail.length===0){ la.innerHTML = '<div class="empty">No engineers available.</div>'; }
+      avail.forEach(a=>{
+        const div = document.createElement('div');
+        div.className = 'row';
+        const since = Date.now() - a.since;
+        div.innerHTML = `
+          <div class="name">${a.name}</div>
+          <div></div>
+          <div class="status">Online - <span data-timer="${a.id}">${fmt(since)}</span></div>
+        `;
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = 'Start';
+        btn.onclick = ()=>startCall(a.id);
+        div.children[1].appendChild(btn);
+        la.appendChild(div);
+      });
+
+      // on call list
+      const lc = document.getElementById('list-oncall');
+      lc.innerHTML = '';
+      if(oncall.length===0){ lc.innerHTML = '<div class="empty">No active calls.</div>'; }
+      oncall.forEach(a=>{
+        const div = document.createElement('div');
+        div.className = 'row';
+        const since = Date.now() - a.since;
+        div.innerHTML = `
+          <div class="name">${a.name}</div>
+          <div></div>
+          <div class="status">On Call - <span data-timer="${a.id}">${fmt(since)}</span></div>
+        `;
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = 'End';
+        btn.onclick = ()=>endCall(a.id);
+        div.children[1].appendChild(btn);
+        lc.appendChild(div);
+      });
+
+      // enable/disable Start next
+      document.getElementById('start-next').disabled = avail.length===0;
+    }
+
+    function tick(){
+      document.querySelectorAll('[data-timer]').forEach(span=>{
+        const id = span.getAttribute('data-timer');
+        const a = state.agents.find(x=>x.id===id);
+        if(!a) return; span.textContent = fmt(Date.now()-a.since);
+      });
+    }
+
+    function addAgent(){
+      const input = document.getElementById('new-name');
+      const name = input.value.trim(); if(!name) return;
+      state.agents.push({ id: uid(), name, status:'available', since: Date.now() });
+      input.value=''; save(); render();
+    }
+
+    function startCall(id){
+      const idx = state.agents.findIndex(a=>a.id===id && a.status==='available');
+      if(idx===-1) return;
+      state.agents[idx].status = 'oncall';
+      state.agents[idx].since = Date.now();
+      save(); render();
+    }
+
+    function endCall(id){
+      const idx = state.agents.findIndex(a=>a.id===id && a.status==='oncall');
+      if(idx===-1) return;
+      const agent = state.agents[idx];
+      // move to end of available list with reset timer
+      state.agents.splice(idx,1);
+      state.agents.push({ id: agent.id, name: agent.name, status:'available', since: Date.now() });
+      save(); render();
+    }
+
+    function startNext(){
+      const a = state.agents.find(x=>x.status==='available');
+      if(!a) return; startCall(a.id);
+    }
+
+    function resetAll(){ if(confirm('Clear all data?')){ state.agents=[]; save(); render(); } }
+
+    // init
+    load(); render();
+    setInterval(tick, 1000);
+
+    document.getElementById('add').onclick = addAgent;
+    document.getElementById('start-next').onclick = startNext;
+    document.getElementById('reset').onclick = resetAll;
+  </script>
 </body>
 </html>
